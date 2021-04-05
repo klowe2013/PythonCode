@@ -8,28 +8,42 @@ Created on Tue Mar 30 07:33:56 2021
 def main():
     # Do imports
     import numpy as np
-    #from SimUtils import *
     import matplotlib.pyplot as plt
-        
+    
     # Parameter setup
-    types = ['hh','hl','lh','ll']
+    types = ['hh','hl','lh','ll','h0','l0']
     N_TRS = 50
     TSTEP = 2
+    PARALLELIZE = True
+    CORE_PROP = .75
     
+    # Open the Spark context, if desired
+    if PARALLELIZE:
+        sc = GetSparkContext(core_prop = CORE_PROP)
+                
     # Initialize condition-wise outputs
-    rts = [[],[],[],[]]
-    unit_activities = [[],[],[],[]]
+    rts = [[],[],[],[],[],[]]
+    unit_activities = [[],[],[],[],[],[]]
+    r_vals = [[],[],[],[],[],[]]
     
     # Start condition loop
-    for i in range(4):
-        # Start trial loop
-        for it in range(N_TRS):
-            if it % 10 == 0:
-                print('Working on ' + types[i] + ' trial ' + str(it))
-            unit_activity, rt = SimTrialLoop(types[i], TSTEP=TSTEP)
-            rts[i].append(rt)
-            unit_activities[i].append(unit_activity)
-            
+    for i in range(len(types)):
+        # If we want to parallelize this with PySpark, use a map/reduce approach
+        if PARALLELIZE:
+            print('Working on ' + types[i] + ' in parallel context')
+            par_vals = sc.parallelize(range(N_TRS)).map(lambda x: SimTrialLoop(types[i], tstep=TSTEP, r_state_in=x)).collect()
+            rts[i] = [par_vals[ii][1] for ii in range(N_TRS)]
+            unit_activities[i] = [par_vals[ii][0] for ii in range(N_TRS)]
+            r_vals[i] = [par_vals[ii][2] for ii in range(N_TRS)]
+        else:
+            # Start trial loop
+            for it in range(N_TRS):
+                if it % 10 == 0:
+                    print('Working on ' + types[i] + ' trial ' + str(it))
+                unit_activity, rt, r_val = SimTrialLoop(types[i], tstep=TSTEP, r_state_in=it)
+                rts[i].append(rt)
+                unit_activities[i].append(unit_activity)
+       
     # Get CDFs of RTs by getting the min and max of all conditions
     min_val_all = min([min(rts[i]) for i in range(len(rts))])
     max_val_all = max([max(rts[i]) for i in range(len(rts))])
@@ -40,7 +54,8 @@ def main():
     cdfs = [cdf_calcs[i][0] for i in range(len(rts))]
     
     # Plot them
-    clr_vals = [[.2,.2,.8],[0,0,.5],[.8,.2,.2],[.5,0,0]]
+    clr_vals = [[.2,.2,.8],[0,0,.5],[.8,.2,.2],[.5,0,0],[.2,.2, .8],[.8,.2,.2]]
+    line_styles = ['solid','solid','solid','solid','dashed','dashed']
     plt.figure()
     for i in range(len(rts)):
         plt.plot(bins[i],cdfs[i],color=clr_vals[i])
@@ -53,10 +68,10 @@ def main():
     plt.plot(bins[0],sic)
     
     # For each condition, pull singleton and mov unit activities
-    in_rf_s = [[],[],[],[]]
-    out_rf_s = [[],[],[],[]]
-    in_rf_m = [[],[],[],[]]
-    out_rf_m = [[],[],[],[]]
+    in_rf_s = [[],[],[],[],[],[]]
+    out_rf_s = [[],[],[],[],[],[]]
+    in_rf_m = [[],[],[],[],[],[]]
+    out_rf_m = [[],[],[],[],[],[]]
     for i in range(len(unit_activities)):
         sing_activities = [unit_activities[i][ii]['sing'] for ii in range(len(unit_activities[i]))]
         in_rf_s[i] = np.array([sing_activities[ii][:,0] for ii in range(len(sing_activities))])
@@ -69,8 +84,8 @@ def main():
     # Now, let's plot singleton unit activity    
     plt.figure()
     for i in range(len(in_rf_s)):
-        plt.plot(np.nanmean(in_rf_s[i],axis=0),color=clr_vals[i],linewidth=3)
-        plt.plot(np.nanmean(out_rf_s[i],axis=0),color=clr_vals[i],linewidth=1)
+        plt.plot(np.nanmean(in_rf_s[i],axis=0),color=clr_vals[i],linewidth=3,linestyle=line_styles[i])
+        plt.plot(np.nanmean(out_rf_s[i],axis=0),color=clr_vals[i],linewidth=1,linestyle=line_styles[i])
     plt.ylim([0,200])
     plt.show()
     
@@ -135,10 +150,11 @@ def SetupParams():
     return params
 
 
-def SimTrialLoop(trial_type, TSTEP=5):
+def SimTrialLoop(trial_type, tstep=5, r_state_in=None):
 
     # Do imports
     import numpy as np
+    import random
     #from SimUtils import *
     
     # Set constants/Defaults
@@ -159,6 +175,11 @@ def SimTrialLoop(trial_type, TSTEP=5):
     LAR_VALS = np.arange(-1,1+AR_STEP,AR_STEP)
     CLR_VALS = np.arange(0,360,CLR_STEP)
     
+    # Set random seed
+    if r_state_in is not None:
+        random.seed(r_state_in)
+        np.random.seed(r_state_in)
+        
     if NOISE_OFF:
         NOISE_SD = 0
         SING_NOISE_SD = 0
@@ -195,8 +216,8 @@ def SimTrialLoop(trial_type, TSTEP=5):
     p = SetupParams()
         
     # Now, set up color transients
-    clr_transients = SetupClrTransients(stim_colors.astype(int), TR_DURATION=TR_DUR, CLR_STEP=CLR_STEP, CLR_STD = CLR_STD, BL_START = BL_START)
-    ar_transients = SetupShapeTransients(stim_elongs.astype(int), TR_DURATION=TR_DUR, AR_STEP=AR_STEP, AR_STD = AR_STD, BL_START = BL_START)
+    clr_transients = SetupClrTransients(stim_colors.astype(int), tr_duration=TR_DUR, clr_step=CLR_STEP, clr_std=CLR_STD, bl_start=BL_START)
+    ar_transients = SetupShapeTransients(stim_elongs.astype(int), tr_duration=TR_DUR, ar_step=AR_STEP, ar_std=AR_STD, bl_start=BL_START)
     transient_times = np.arange(BL_START,TR_DUR)
     
     # Cut down to just t > 0
@@ -205,9 +226,9 @@ def SimTrialLoop(trial_type, TSTEP=5):
     sub_times = transient_times[transient_times >= 0]
     
     # Cut down to every TSTEPth time point
-    cut_clr_resp = [*map(lambda x: x[0::TSTEP,:],sub_clr_resp)]
-    cut_ar_resp = [*map(lambda x: x[0::TSTEP,:],sub_ar_resp)]
-    cut_times = sub_times[0::TSTEP]
+    cut_clr_resp = [*map(lambda x: x[0::tstep,:],sub_clr_resp)]
+    cut_ar_resp = [*map(lambda x: x[0::tstep,:],sub_ar_resp)]
+    cut_times = sub_times[0::tstep]
     
     # Later, we'll need to scale GO/NO-GO activity by a weighting function. Let's define those weights here
     g_fun = lambda x, s, m: (.5*np.pi*(s**2))*np.exp((-.5)*((x-m)**2)/(s**2))/(.5*np.pi*(s**2))
@@ -218,11 +239,11 @@ def SimTrialLoop(trial_type, TSTEP=5):
     lar_scale_go[LAR_VALS < 0] = 0
     
     # Initialize derived units
-    v_colors = [np.empty([len(cut_times),len(CLR_VALS)]) for i in range(SET_SIZE)]
-    sing_unit = np.empty([len(cut_times),SET_SIZE])
-    mov_unit = np.empty([len(cut_times),SET_SIZE])
-    go_unit = np.empty([len(cut_times),SET_SIZE])
-    ng_unit = np.empty([len(cut_times),SET_SIZE])
+    v_colors = [np.empty([len(cut_times),len(CLR_VALS)])*np.nan for i in range(SET_SIZE)]
+    sing_unit = np.empty([len(cut_times),SET_SIZE])*np.nan
+    mov_unit = np.empty([len(cut_times),SET_SIZE])*np.nan
+    go_unit = np.empty([len(cut_times),SET_SIZE])*np.nan
+    ng_unit = np.empty([len(cut_times),SET_SIZE])*np.nan
     
     # Start them with randn
     for il in range(SET_SIZE):
@@ -269,13 +290,13 @@ def SimTrialLoop(trial_type, TSTEP=5):
                 
                 # Now, the differential equation for the "ic as singleton" units
                 dv_tmp = (cut_clr_resp[il][it,ic] - cut_clr_resp[il][it-1,ic]) + \
-                    TSTEP*( \
+                    tstep*( \
                         other_color_vals*p['other_drive'] \
                             - same_color_vals*p['same_inhib'] \
                                 -lateral_inhib*p['lat_colors'] \
                                     -v_colors[il][it-1,ic]*p['k'] \
                         ) + \
-                        np.sqrt(TSTEP)*np.random.randn(1,1)*NOISE_SD
+                        np.sqrt(tstep)*np.random.randn(1,1)*NOISE_SD
                 v_colors[il][it,ic] = max((0,v_colors[il][it-1,ic]+dv_tmp))
             # END IC LOOP
             
@@ -286,14 +307,14 @@ def SimTrialLoop(trial_type, TSTEP=5):
             sing_inhib = sum(sing_unit[it-1,:]) - sing_unit[it-1,il]
             
             # Now write the differential equation
-            ds_tmp = TSTEP * ( \
+            ds_tmp = tstep * ( \
                 sing_drive*p['sing_drive'] \
                 - sing_inhib*p['sing_lateral'] \
                     + max((0, go_unit[it-1,il] - p['v_go_gate']))*p['go_vis_facil'] \
                         - max((0, ng_unit[it-1,il] - p['v_go_gate']))*p['ng_vis_inhib'] \
                             - sing_unit[it-1,il]*p['singk'] \
                 ) + \
-                np.sqrt(TSTEP)*np.random.randn(1,1)*SING_NOISE_SD
+                np.sqrt(tstep)*np.random.randn(1,1)*SING_NOISE_SD
             sing_unit[it,il] = max((0, sing_unit[it-1,il] + ds_tmp))
             
             # Now, let's get the GO and NO-GO drive by applying the transfer functions to cut_ar_resp
@@ -301,21 +322,21 @@ def SimTrialLoop(trial_type, TSTEP=5):
             go_drive = sum(np.multiply(cut_ar_resp[il][it-1,:],lar_scale_go))
             
             # Use this drive on the NO-GO units
-            dn_tmp = TSTEP * ( \
+            dn_tmp = tstep * ( \
                               ng_drive * p['stim_ng'] \
                                   - go_unit[it-1,il]*p['b_go'] \
                                       - ng_unit[it-1,il]*p['gngk'] \
                             ) + \
-                np.sqrt(TSTEP)*np.random.randn(1,1)*SING_NOISE_SD
+                np.sqrt(tstep)*np.random.randn(1,1)*SING_NOISE_SD
             ng_unit[it,il] = max((0, ng_unit[it-1,il]+dn_tmp))
             
             # And on the GO units
-            dg_tmp = TSTEP * (
+            dg_tmp = tstep * (
                 go_drive * p['stim_go'] \
                     - ng_unit[it-1,il]*p['b_stop'] \
                         - go_unit[it-1,il]*p['gngk'] \
                 ) + \
-                np.sqrt(TSTEP)*np.random.randn(1,1)*SING_NOISE_SD
+                np.sqrt(tstep)*np.random.randn(1,1)*SING_NOISE_SD
             go_unit[it,il] = max((0, go_unit[it-1,il]+dg_tmp))
             
             # Finally, we're ready to drive the mov units
@@ -324,24 +345,24 @@ def SimTrialLoop(trial_type, TSTEP=5):
             lat_inhib = sum(np.multiply([p['lat_inhib'][i] for i in list(range(il,SET_SIZE))+list(range(il))],mov_unit[it-1,:]))
             
             # Set up the equation
-            dm_tmp = TSTEP *( \
+            dm_tmp = tstep *( \
                 max((0,(sing_unit[it-1,il] - ff_inhib - p['gate'])))*p['vm_drive'] \
                     + max((0, go_unit[it-1,il]-p['m_go_gate']))*p['go_mdrive'] \
                         - max((0, ng_unit[it-1,il]-p['m_ng_gate']))*p['ng_mdrive'] \
                             - lat_inhib \
                                 - mov_unit[it-1,il]*p['k'] \
                 ) + \
-                np.sqrt(TSTEP)*np.random.randn(1,1)*SING_NOISE_SD
+                np.sqrt(tstep)*np.random.randn(1,1)*SING_NOISE_SD
             mov_unit[it,il] = max((0, mov_unit[it-1,il]+dm_tmp))
         # END IL LOOP
     # END IT LOOP
     
     unit_activity = {'sing': sing_unit, 'mov': mov_unit, 'go': go_unit, 'ng': ng_unit}
     
-    return unit_activity, rt
+    return unit_activity, rt, r_state_in
     
 
-def GetTransient(gain=1, std=0, duration=800, bl_lead=-300, VIS_LATENCY=40):
+def GetTransient(gain=1, std=0, duration=800, bl_lead=-300, vis_latency=40):
     
     # Do imports
     import numpy as np
@@ -349,7 +370,6 @@ def GetTransient(gain=1, std=0, duration=800, bl_lead=-300, VIS_LATENCY=40):
     # Set default variables
     TRANS_PEAK = 100
     SUST_RESP = 80
-    VIS_LATENCY = 40
     TG = 10
     TD = 40
     BASELINE = 10
@@ -370,7 +390,7 @@ def GetTransient(gain=1, std=0, duration=800, bl_lead=-300, VIS_LATENCY=40):
     model_resp = np.max(np.vstack((piece_rise,piece_fall)),axis=0)
     
     # Combine baseline for VIS_LATENCY samples at the front
-    sdf = np.concatenate((np.zeros([VIS_LATENCY,1]),model_resp.reshape(-1,1)),axis=0)
+    sdf = np.concatenate((np.zeros([vis_latency,1]),model_resp.reshape(-1,1)),axis=0)
     sdf = sdf[0:duration]
     t = np.arange(0,duration)
     sdf[t > OFF_TIME] = 0
@@ -401,7 +421,7 @@ def GetTransient(gain=1, std=0, duration=800, bl_lead=-300, VIS_LATENCY=40):
 def DecodeTrialType(type_str):
     # type_str should be 'hh','hl',lh','ll','h0', or 'l0'. The first position is identifiability, second is discriminability
     # Set up a dict that can be indexed easily
-    hl_dict = {'h': True, 'l': False}
+    hl_dict = {'h': True, 'l': False, '0': False}
     gng_dict = {'h': True, 'l': True, '0': False}
     
     is_hi = hl_dict[type_str[0].lower()]
@@ -441,7 +461,7 @@ def GetGainGauss(g_std, offset):
     return gain_gauss
 
 
-def SetupClrTransients(stim_colors, TR_DURATION=600, CLR_STEP = 10, CLR_STD = 5, BL_START=-300):
+def SetupClrTransients(stim_colors, tr_duration=600, clr_step = 10, clr_std = 5, bl_start=-300):
     # Do imports
     import numpy as np
     
@@ -451,7 +471,7 @@ def SetupClrTransients(stim_colors, TR_DURATION=600, CLR_STEP = 10, CLR_STD = 5,
     BASE_GAIN = .2
     
     # Make a vector of color values
-    clr_vals = np.arange(0,360,CLR_STEP)
+    clr_vals = np.arange(0,360,clr_step)
 
     # Set up output
     clr_transients = []
@@ -463,9 +483,9 @@ def SetupClrTransients(stim_colors, TR_DURATION=600, CLR_STEP = 10, CLR_STD = 5,
         # Now scale it
         gain_gauss = (gain_gauss*(1-BASE_GAIN)) + BASE_GAIN
      
-        base_transient = np.empty((len(range(BL_START,TR_DURATION)),len(clr_vals)))
+        base_transient = np.empty((len(range(bl_start,tr_duration)),len(clr_vals)))
         for ic, cv in enumerate(clr_vals):
-            [tmp_sdf, tmp_t] = GetTransient(gain_gauss[cv],std=CLR_STD, duration=TR_DURATION, bl_lead = BL_START)
+            [tmp_sdf, tmp_t] = GetTransient(gain_gauss[cv],std=clr_std, duration=tr_duration, bl_lead=bl_start)
             base_transient[:,ic] = tmp_sdf.ravel()
      
         clr_transients.append(base_transient)
@@ -473,7 +493,7 @@ def SetupClrTransients(stim_colors, TR_DURATION=600, CLR_STEP = 10, CLR_STD = 5,
     return clr_transients
 
 
-def SetupShapeTransients(stim_elongs, TR_DURATION=600, AR_STEP = .05, AR_STD = 5, BL_START=-300):
+def SetupShapeTransients(stim_elongs, tr_duration=600, ar_step=.05, ar_std=5, bl_start=-300):
     # Do imports
     import numpy as np
     
@@ -483,7 +503,7 @@ def SetupShapeTransients(stim_elongs, TR_DURATION=600, AR_STEP = .05, AR_STD = 5
     BASE_GAIN = .2
     
     # Make a vector of color values
-    ar_vals = np.arange(-1,1+AR_STEP,AR_STEP)
+    ar_vals = np.arange(-1,1+ar_step,ar_step)
 
     # Prep Gaussian function    
     g_fun = lambda x, s, m: (.5*np.pi*(s**2))*np.exp((-.5)*((x-m)**2)/(s**2))/(.5*np.pi*(s**2))
@@ -493,9 +513,9 @@ def SetupShapeTransients(stim_elongs, TR_DURATION=600, AR_STEP = .05, AR_STD = 5
     
     # Loop through stim_elongs
     for i in range(len(stim_elongs)):
-        base_transient = np.empty((len(range(BL_START,TR_DURATION)),len(ar_vals)))
+        base_transient = np.empty((len(range(bl_start,tr_duration)),len(ar_vals)))
         for ic, sv in enumerate(ar_vals):
-            [tmp_sdf, tmp_t] = GetTransient(g_fun(sv,AR_WIDTH, np.log(CENTER_VALS[stim_elongs[i]]))*(1-BASE_GAIN)+BASE_GAIN, std = AR_STD, duration=TR_DURATION, bl_lead=BL_START)
+            [tmp_sdf, tmp_t] = GetTransient(g_fun(sv,AR_WIDTH, np.log(CENTER_VALS[stim_elongs[i]]))*(1-BASE_GAIN)+BASE_GAIN, std=ar_std, duration=tr_duration, bl_lead=bl_start)
             base_transient[:,ic] = tmp_sdf.ravel()
      
         ar_transients.append(base_transient)
@@ -515,6 +535,23 @@ def GetCDF(in_distro, min_val = None, max_val = None, step = 1):
     cdf = [sum(in_distro <= bins[i])/len(in_distro) for i in range(len(bins))]
     
     return cdf, bins
+
+
+def GetSparkContext(core_prop = 1):
+    import pyspark as ps
+    import os
+    
+    # Get number of cores
+    n_cores = len(os.sched_getaffinity(0))
+    n_str = 'local[' + str(int(n_cores*core_prop)) + ']'
+    
+    spark = ps.sql.SparkSession.builder \
+    .master(n_str) \
+        .appName('spark-ml') \
+            .getOrCreate()
+    sc = spark.sparkContext
+
+    return sc
 
 
 if __name__ == '__main__':
