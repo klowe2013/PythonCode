@@ -22,9 +22,9 @@ def main():
         sc = GetSparkContext(core_prop = CORE_PROP)
                 
     # Initialize condition-wise outputs
-    rts = [[],[],[],[],[],[]]
-    unit_activities = [[],[],[],[],[],[]]
-    r_vals = [[],[],[],[],[],[]]
+    rts = [[] for i in range(len(types))]
+    unit_activities = [[] for i in range(len(types))]
+    r_vals = [[] for i in range(len(types))]
     
     # Start condition loop
     for i in range(len(types)):
@@ -68,10 +68,10 @@ def main():
     plt.plot(bins[0],sic)
     
     # For each condition, pull singleton and mov unit activities
-    in_rf_s = [[],[],[],[],[],[]]
-    out_rf_s = [[],[],[],[],[],[]]
-    in_rf_m = [[],[],[],[],[],[]]
-    out_rf_m = [[],[],[],[],[],[]]
+    in_rf_s = [[] for i in range(len(types))]
+    out_rf_s = [[] for i in range(len(types))]
+    in_rf_m = [[] for i in range(len(types))]
+    out_rf_m = [[] for i in range(len(types))]
     for i in range(len(unit_activities)):
         sing_activities = [unit_activities[i][ii]['sing'] for ii in range(len(unit_activities[i]))]
         in_rf_s[i] = np.array([sing_activities[ii][:,0] for ii in range(len(sing_activities))])
