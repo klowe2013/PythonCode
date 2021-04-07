@@ -108,7 +108,7 @@ def main():
 
     if DO_SAVE:
         import pickle
-        save_obj = [unit_activities, rts]
+        save_obj = {'Units': unit_activities, 'RTs': rts, 'Types': types}
         save_file = open('./testSave.obj','wb')
         pickle.dump(save_obj, save_file)
 
