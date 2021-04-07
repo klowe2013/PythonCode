@@ -9,28 +9,33 @@ def main():
     # Do imports
     import numpy as np
     import matplotlib.pyplot as plt
+    from time import perf_counter
     
     # Parameter setup
     types = ['hh','hl','lh','ll','h0','l0']
-    N_TRS = 50
-    TSTEP = 2
+    N_TRS = 100
+    TSTEP = 1
     PARALLELIZE = True
     CORE_PROP = .75
+    DO_SAVE = True
+    VERBOSE = True
     
     # Open the Spark context, if desired
     if PARALLELIZE:
         sc = GetSparkContext(core_prop = CORE_PROP)
-                
+
     # Initialize condition-wise outputs
     rts = [[] for i in range(len(types))]
     unit_activities = [[] for i in range(len(types))]
     r_vals = [[] for i in range(len(types))]
     
+    start = perf_counter()
     # Start condition loop
     for i in range(len(types)):
         # If we want to parallelize this with PySpark, use a map/reduce approach
         if PARALLELIZE:
-            print('Working on ' + types[i] + ' in parallel context')
+            if VERBOSE:
+                print('Working on ' + types[i] + ' in parallel context')
             par_vals = sc.parallelize(range(N_TRS)).map(lambda x: SimTrialLoop(types[i], tstep=TSTEP, r_state_in=x)).collect()
             rts[i] = [par_vals[ii][1] for ii in range(N_TRS)]
             unit_activities[i] = [par_vals[ii][0] for ii in range(N_TRS)]
@@ -43,7 +48,11 @@ def main():
                 unit_activity, rt, r_val = SimTrialLoop(types[i], tstep=TSTEP, r_state_in=it)
                 rts[i].append(rt)
                 unit_activities[i].append(unit_activity)
-       
+    end = perf_counter()
+    
+    if VERBOSE:
+        print('%d trial types completed in %.3f seconds' % (len(types), start-end))
+    
     # Get CDFs of RTs by getting the min and max of all conditions
     min_val_all = min([min(rts[i]) for i in range(len(rts))])
     max_val_all = max([max(rts[i]) for i in range(len(rts))])
@@ -97,6 +106,11 @@ def main():
     plt.ylim([0,200])
     plt.show()
 
+    if DO_SAVE:
+        import pickle
+        save_obj = [unit_activities, rts]
+        save_file = open('./testSave.obj','wb')
+        pickle.dump(save_obj, save_file)
 
 def SetupParams():
     # Set up parameters for the model simulations. All as a dict for readability
