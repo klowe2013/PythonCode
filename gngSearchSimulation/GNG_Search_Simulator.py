@@ -22,7 +22,11 @@ def main():
     
     # Open the Spark context, if desired
     if PARALLELIZE:
-        sc = GetSparkContext(core_prop = CORE_PROP)
+        try:
+            sc = GetSparkContext(core_prop = CORE_PROP)
+        except:
+            print('Can\'t initialize Spark Context. Continuing without parallelization.')
+            PARALLELIZE = False
 
     # Initialize condition-wise outputs
     rts = [[] for i in range(len(types))]
@@ -556,7 +560,12 @@ def GetSparkContext(core_prop = 1):
     import os
     
     # Get number of cores
-    n_cores = len(os.sched_getaffinity(0))
+    try:
+        n_cores = len(os.sched_getaffinity(0))
+    except:
+        import psutil
+        n_cores = psutil.cpu_count()
+        
     n_str = 'local[' + str(int(n_cores*core_prop)) + ']'
     
     spark = ps.sql.SparkSession.builder \

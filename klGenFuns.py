@@ -66,3 +66,51 @@ def nunique(myArray):
     outVals = uVals[~np.isnan(uVals)]
     return outVals
 
+
+def PoissonSpikeMat(in_sdf, n_trs = 100, res = 5, offset = -500):
+    import numpy as np
+    
+    # Set up a spiking lambda function
+    poiss_rate = lambda perc_point, lamb: np.log(1-perc_point)/(-1*lamb)
+    
+    # Set up outputs/midpoints
+    n_res = in_sdf.shape[0]//res
+    my_lambs = np.empty([n_res,1])*np.nan
+    tr_spks = [np.array([]) for i in range(n_trs)]
+    
+    for it in range(n_trs):
+        # Loop over in_sdf by resolution to get mean firing rates
+        for ir in range(n_res):
+            # Isolate this time bin
+            my_times = np.arange(0,res)+(res*ir)
+            min_t = min(my_times)
+            
+            # Get mean value (lambda) for Poisson sampler
+            my_lambs[ir] = np.mean(in_sdf[my_times])
+            
+            # Set up counters
+            this_section_itis = [0.]
+            this_section_times = [0.]
+            
+            if not np.isnan(my_lambs[ir]):
+                # Do a while loop to sample until the end of the time bin
+                while this_section_times[-1] < res:
+                    # Get a random value between 0 and 1
+                    rand_val = np.random.uniform()
+                    next_iti = poiss_rate(rand_val, my_lambs[ir])
+                    this_section_itis = np.append(this_section_itis,next_iti*1000)
+                    this_section_times = np.append(this_section_times,sum(this_section_itis))
+                # Cut out spikes that went past the bin
+                while this_section_times[-1] > res:
+                    this_section_times = this_section_times[:-1]
+            if len(this_section_times) > 1:
+                tr_spks[it] = np.append(tr_spks[it],np.round(this_section_times[1:] + (res/2) + min_t))
+        # End IR loop
+    # End IT loop
+    
+    n_spks = [len(tr_spks[i]) for i in range(len(tr_spks))]
+    all_spks = np.empty([n_trs,max(n_spks)])*np.nan
+    for it in range(n_trs):
+        all_spks[it,0:n_spks[it]] = tr_spks[it] + offset
+    
+    return all_spks

@@ -20,6 +20,11 @@ def main():
     from keras.callbacks import EarlyStopping
     from keras.models import load_model
 
+    # And model fit metrics    
+    from sklearn.metrics import r2_score
+    from sklearn.metrics import mean_squared_error
+
+
     types = ['hh','hl','lh','ll','h0','l0']
         
     saved_obj = pickle.load(open("./testSave.obj",'rb'))
