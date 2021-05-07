@@ -20,11 +20,19 @@ def main():
     CORE_PROP = .75
     DO_SAVE = True
     VERBOSE = True
+    PAR_METHOD = 'pool' # 'pool' to use multiprocessing, 'spark' to use PySpark
     
+    # Initialize Spark context, if desired
+    if PARALLELIZE and PAR_METHOD == 'spark':
+        try:
+            sc = GetSparkContext(core_prop = CORE_PROP)
+        except:
+            print('Can\'t initialize Spark Context. Reverting to \'Pool\' method')
+            PAR_METHOD = 'pool'
+        
     # Initialize condition-wise outputs
     rts = [[] for i in range(len(types))]
     unit_activities = [[] for i in range(len(types))]
-    r_vals = [[] for i in range(len(types))]
     
     start = perf_counter()
     # Start condition loop
@@ -33,17 +41,19 @@ def main():
         if PARALLELIZE:
             if VERBOSE:
                 print('Working on ' + types[i] + ' in parallel context')
-            # Get number of cores
-            try:
-                n_cores = len(os.sched_getaffinity(0))
-            except:
-                import psutil
-                n_cores = psutil.cpu_count()
-            with Pool(int(n_cores*CORE_PROP)) as p:
-                par_vals = p.map(PoolHelper, [[types[i],TSTEP,t] for t in range(N_TRS)])
+            if PAR_METHOD == 'pool':
+                # Get number of cores
+                try:
+                    n_cores = len(os.sched_getaffinity(0))
+                except:
+                    import psutil
+                    n_cores = psutil.cpu_count()
+                with Pool(int(n_cores*CORE_PROP)) as p:
+                    par_vals = p.map(PoolHelper, [[types[i],TSTEP,t] for t in range(N_TRS)])
+            elif PAR_METHOD == 'spark':
+                par_vals = sc.parallelize(range(N_TRS)).map(lambda x: SimTrialLoop(types[i], tstep=TSTEP, r_state_in=x)).collect()
             rts[i] = [par_vals[ii][1] for ii in range(N_TRS)]
             unit_activities[i] = [par_vals[ii][0] for ii in range(N_TRS)]
-            #r_vals[i] = [par_vals[ii][2] for ii in range(N_TRS)]
         else:
             # Start trial loop
             for it in range(N_TRS):
