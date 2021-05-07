@@ -24,6 +24,10 @@ def main():
     from sklearn.metrics import r2_score
     from sklearn.metrics import mean_squared_error
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> d141029b936393056f1e00df4883e60ca1758536
     types = ['hh','hl','lh','ll','h0','l0']
         
     saved_obj = pickle.load(open("./testSave.obj",'rb'))

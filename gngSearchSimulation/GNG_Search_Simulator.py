@@ -4,30 +4,35 @@ Created on Tue Mar 30 07:33:56 2021
 
 @author: klowe
 """
+# Do imports
+import numpy as np
+import matplotlib.pyplot as plt
+from time import perf_counter
+import os
+from multiprocessing import Pool
 
 def main():
-    # Do imports
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from time import perf_counter
-    
     # Parameter setup
     types = ['hh','hl','lh','ll','h0','l0']
-    N_TRS = 100
+    N_TRS = 5
     TSTEP = 1
     PARALLELIZE = True
     CORE_PROP = .75
     DO_SAVE = True
     VERBOSE = True
+    PAR_METHOD = 'pool' # 'pool' to use multiprocessing, 'spark' to use PySpark
     
-    # Open the Spark context, if desired
-    if PARALLELIZE:
-        sc = GetSparkContext(core_prop = CORE_PROP)
-
+    # Initialize Spark context, if desired
+    if PARALLELIZE and PAR_METHOD == 'spark':
+        try:
+            sc = GetSparkContext(core_prop = CORE_PROP)
+        except:
+            print('Can\'t initialize Spark Context. Reverting to \'Pool\' method')
+            PAR_METHOD = 'pool'
+        
     # Initialize condition-wise outputs
     rts = [[] for i in range(len(types))]
     unit_activities = [[] for i in range(len(types))]
-    r_vals = [[] for i in range(len(types))]
     
     start = perf_counter()
     # Start condition loop
@@ -36,10 +41,19 @@ def main():
         if PARALLELIZE:
             if VERBOSE:
                 print('Working on ' + types[i] + ' in parallel context')
-            par_vals = sc.parallelize(range(N_TRS)).map(lambda x: SimTrialLoop(types[i], tstep=TSTEP, r_state_in=x)).collect()
+            if PAR_METHOD == 'pool':
+                # Get number of cores
+                try:
+                    n_cores = len(os.sched_getaffinity(0))
+                except:
+                    import psutil
+                    n_cores = psutil.cpu_count()
+                with Pool(int(n_cores*CORE_PROP)) as p:
+                    par_vals = p.map(PoolHelper, [[types[i],TSTEP,t] for t in range(N_TRS)])
+            elif PAR_METHOD == 'spark':
+                par_vals = sc.parallelize(range(N_TRS)).map(lambda x: SimTrialLoop(types[i], tstep=TSTEP, r_state_in=x)).collect()
             rts[i] = [par_vals[ii][1] for ii in range(N_TRS)]
             unit_activities[i] = [par_vals[ii][0] for ii in range(N_TRS)]
-            r_vals[i] = [par_vals[ii][2] for ii in range(N_TRS)]
         else:
             # Start trial loop
             for it in range(N_TRS):
@@ -111,6 +125,12 @@ def main():
         save_obj = {'Units': unit_activities, 'RTs': rts, 'Types': types}
         save_file = open('./testSave.obj','wb')
         pickle.dump(save_obj, save_file)
+
+
+def PoolHelper(in_list):
+    unit_activities, rt, r_val = SimTrialLoop(in_list[0], tstep=in_list[1], r_state_in=in_list[2])
+    return unit_activities, rt
+
 
 def SetupParams():
     # Set up parameters for the model simulations. All as a dict for readability
@@ -556,7 +576,12 @@ def GetSparkContext(core_prop = 1):
     import os
     
     # Get number of cores
-    n_cores = len(os.sched_getaffinity(0))
+    try:
+        n_cores = len(os.sched_getaffinity(0))
+    except:
+        import psutil
+        n_cores = psutil.cpu_count()
+        
     n_str = 'local[' + str(int(n_cores*core_prop)) + ']'
     
     spark = ps.sql.SparkSession.builder \
